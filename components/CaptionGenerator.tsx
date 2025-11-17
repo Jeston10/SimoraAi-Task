@@ -65,7 +65,7 @@ export const CaptionGenerator: React.FC<CaptionGeneratorProps> = ({
       onCaptionsGenerated(data.captions);
       setProgress("Complete!");
     } catch (err) {
-      console.error("Caption generation error:", err);
+      // Error is already logged on server side
       setError(
         err instanceof Error ? err.message : "Failed to generate captions"
       );

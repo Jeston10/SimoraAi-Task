@@ -43,13 +43,11 @@ export default function Home() {
     setError(null);
     setCaptions(null); // Reset captions when new video is uploaded
     toast.success(`Video uploaded successfully! (${(file.size / (1024 * 1024)).toFixed(2)} MB)`);
-    console.log("Video uploaded successfully:", uploadedVideo);
   };
 
   const handleCaptionsGenerated = (generatedCaptions: Caption[]) => {
     setCaptions(generatedCaptions);
     toast.success(`Successfully generated ${generatedCaptions.length} captions!`);
-    console.log("Captions generated:", generatedCaptions);
   };
 
   const handleUploadError = (errorMessage: string) => {
@@ -58,7 +56,6 @@ export default function Home() {
     setVideoFile(null);
     setCaptions(null);
     toast.error(errorMessage);
-    console.error("Upload error:", errorMessage);
   };
 
   return (

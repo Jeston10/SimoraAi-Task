@@ -4,8 +4,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
 import { generateId } from "@/lib/utils";
+import { uploadToStorage } from "@/lib/storage";
+import { logger } from "@/lib/logger";
 import type { VideoUploadResponse } from "@/types";
 
 // Disable body parsing, we'll handle it manually for file uploads
@@ -56,28 +57,31 @@ export async function POST(request: NextRequest) {
     const fileName = `${videoId}-${file.name}`;
 
     // Upload to Vercel Blob Storage
-    // Note: In development, you might want to use local storage first
-    // For now, we'll use a fallback approach
+    logger.info("Starting video upload", {
+      fileName,
+      fileSize: file.size,
+      fileType: file.type,
+    });
+
     let videoUrl: string;
+    let fileSize: number;
 
     try {
-      // Try to use Vercel Blob if configured
-      const blobToken = process.env.VERCEL_BLOB_STORAGE_TOKEN;
-      if (blobToken) {
-        const blob = await put(fileName, file, {
-          access: "public",
-          token: blobToken,
-        });
-        videoUrl = blob.url;
-      } else {
-        // Fallback: For development, we'll return a placeholder
-        // In production, Vercel Blob should be configured
-        videoUrl = `/uploads/${fileName}`;
-        // In a real scenario, you'd save to local storage or use another service
-        console.warn("VERCEL_BLOB_STORAGE_TOKEN not configured. Using placeholder URL.");
-      }
+      const uploadResult = await uploadToStorage(fileName, file);
+      videoUrl = uploadResult.url;
+      fileSize = uploadResult.size;
+
+      logger.info("Video uploaded successfully", {
+        fileName,
+        videoUrl,
+        fileSize,
+      });
     } catch (error) {
-      console.error("Error uploading to blob storage:", error);
+      logger.error("Failed to upload video to storage", error as Error, {
+        fileName,
+        fileSize: file.size,
+      });
+
       return NextResponse.json<VideoUploadResponse>(
         {
           success: false,
@@ -99,7 +103,7 @@ export async function POST(request: NextRequest) {
       message: "Video uploaded successfully",
     });
   } catch (error) {
-    console.error("Upload error:", error);
+    logger.error("Upload API error", error as Error);
     return NextResponse.json<VideoUploadResponse>(
       {
         success: false,

@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { generateId } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 import type { RenderRequest, RenderResponse } from "@/types";
 
 export const runtime = "nodejs";
@@ -50,14 +51,22 @@ export async function POST(request: NextRequest) {
       createdAt: new Date(),
     });
 
+    logger.info("Render job created", {
+      jobId,
+      videoId,
+      style,
+      quality,
+      captionCount: captions.length,
+    });
+
     // Start rendering asynchronously (fire and forget for now)
-    // In production, use a proper job queue
+    // In production, use a proper job queue (Redis, Bull, etc.)
     renderVideo(jobId, body).catch((error) => {
-      console.error("Render error:", error);
+      logger.error("Render job failed", error as Error, { jobId });
       const job = renderJobs.get(jobId);
       if (job) {
         job.status = "failed";
-        job.error = error.message;
+        job.error = error instanceof Error ? error.message : "Unknown error";
         renderJobs.set(jobId, job);
       }
     });
@@ -70,7 +79,7 @@ export async function POST(request: NextRequest) {
       message: "Render job started",
     });
   } catch (error) {
-    console.error("Render API error:", error);
+    logger.error("Render API error", error as Error);
     return NextResponse.json<RenderResponse>(
       {
         success: false,
@@ -119,7 +128,7 @@ export async function GET(request: NextRequest) {
       message: `Job status: ${job.status}`,
     });
   } catch (error) {
-    console.error("Get job status error:", error);
+    logger.error("Get render job status error", error as Error);
     return NextResponse.json<RenderResponse>(
       {
         success: false,
@@ -141,35 +150,62 @@ export async function GET(request: NextRequest) {
 //
 // For now, this is a placeholder that simulates the rendering process.
 // For production, implement full Remotion rendering or use CLI rendering.
-async function renderVideo(jobId: string, _request: RenderRequest) {
+async function renderVideo(jobId: string, request: RenderRequest) {
   const job = renderJobs.get(jobId);
-  if (!job) return;
+  if (!job) {
+    logger.warn("Render job not found", { jobId });
+    return;
+  }
 
   try {
+    logger.info("Starting video render", {
+      jobId,
+      videoId: request.videoId,
+      style: request.style,
+      quality: request.quality,
+    });
+
     job.status = "processing";
     job.progress = 10;
     renderJobs.set(jobId, job);
 
-    // Simulate rendering progress
-    // In production, replace this with actual Remotion rendering:
-    // 1. Bundle Remotion project
-    // 2. Select composition
-    // 3. Render video with FFmpeg
-    // 4. Upload to storage
-    // 5. Update job status
+    // NOTE: This is a simplified implementation
+    // For production, implement full Remotion rendering:
+    // 1. Install @remotion/bundler and @remotion/renderer
+    // 2. Bundle Remotion project: await bundle({ entryPoint: "remotion/index.ts" })
+    // 3. Select composition: await selectComposition({ serveUrl, id: "CaptionVideo", inputProps })
+    // 4. Render video: await renderMedia({ composition, serveUrl, codec: "h264", outputLocation })
+    // 5. Upload rendered video to storage
+    // 6. Update job status with actual output URL
+    //
+    // Limitations:
+    // - Vercel serverless functions have timeout limits (10s Hobby, 60s Pro)
+    // - Remotion rendering requires FFmpeg (not available on Vercel by default)
+    // - For production, use: CLI rendering, Remotion Lambda, or separate rendering service
 
+    logger.info("Render progress: 10%", { jobId });
     await new Promise((resolve) => setTimeout(resolve, 1000));
+
     job.progress = 50;
     renderJobs.set(jobId, job);
+    logger.info("Render progress: 50%", { jobId });
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
+
     job.progress = 100;
     job.status = "completed";
     // In production, set actual output URL from storage
     job.outputUrl = `/api/render/download?jobId=${jobId}`;
     job.completedAt = new Date();
     renderJobs.set(jobId, job);
+
+    logger.info("Render job completed", {
+      jobId,
+      outputUrl: job.outputUrl,
+      duration: job.completedAt.getTime() - job.createdAt.getTime(),
+    });
   } catch (error) {
+    logger.error("Render job failed", error as Error, { jobId });
     job.status = "failed";
     job.error = error instanceof Error ? error.message : "Unknown error";
     renderJobs.set(jobId, job);

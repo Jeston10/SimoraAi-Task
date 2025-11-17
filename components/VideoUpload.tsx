@@ -73,7 +73,7 @@ export const VideoUpload: React.FC<VideoUploadProps> = ({
         onUploadSuccess(video, file);
         setSelectedFile(null);
       } catch (error) {
-        console.error("Upload error:", error);
+        // Error is already logged on server side
         onUploadError(
           error instanceof Error ? error.message : "Failed to upload video"
         );

@@ -1,10 +1,33 @@
 /**
  * Speech-to-Text (STT) Integration
- * Uses OpenAI Whisper API for transcription
+ * Supports multiple providers:
+ * - Hugging Face Inference API (FREE, recommended)
+ * - OpenAI Whisper API (paid, fallback)
  */
 
 import OpenAI from "openai";
+import { logger } from "./logger";
 import type { Caption, Word } from "@/types";
+
+// STT Provider type
+type STTProvider = "huggingface" | "openai" | "auto";
+
+// Get STT provider preference
+// Priority: Hugging Face (FREE) > OpenAI (paid fallback)
+const getSTTProvider = (): STTProvider => {
+  const provider = process.env.STT_PROVIDER || "auto";
+  if (provider === "huggingface" || provider === "openai") {
+    return provider;
+  }
+  // Auto-detect: ALWAYS prefer Hugging Face if available (FREE), fallback to OpenAI (paid)
+  if (process.env.HUGGINGFACE_API_KEY) {
+    return "huggingface"; // Primary: FREE Hugging Face
+  }
+  if (process.env.OPENAI_API_KEY) {
+    return "openai"; // Fallback: Paid OpenAI
+  }
+  throw new Error("No STT provider configured. Set HUGGINGFACE_API_KEY (recommended, FREE) or OPENAI_API_KEY");
+};
 
 // Initialize OpenAI client
 const getOpenAIClient = () => {
@@ -16,12 +39,139 @@ const getOpenAIClient = () => {
 };
 
 /**
+ * Generate captions using Hugging Face Inference API (FREE)
+ * Uses openai/whisper-large-v3 model
+ */
+async function generateCaptionsHuggingFace(
+  videoFile: File | Buffer,
+  language?: "hi" | "en" | "auto"
+): Promise<Caption[]> {
+  const apiKey = process.env.HUGGINGFACE_API_KEY;
+  if (!apiKey) {
+    throw new Error("HUGGINGFACE_API_KEY is not configured");
+  }
+
+  const model = "openai/whisper-large-v3";
+  const apiUrl = `https://api-inference.huggingface.co/models/${model}`;
+
+  try {
+    logger.info("Using Hugging Face Whisper API", {
+      model,
+      language: language || "auto",
+    });
+
+    // Convert file to Blob
+    let fileData: Blob;
+    if (videoFile instanceof File) {
+      fileData = videoFile;
+    } else {
+      // Convert Buffer to Uint8Array for Blob
+      const uint8Array = new Uint8Array(videoFile);
+      fileData = new Blob([uint8Array], { type: "video/mp4" });
+    }
+
+    // Prepare language parameter
+    const languageParam = language === "auto" ? undefined : language;
+
+    // Call Hugging Face API
+    const formData = new FormData();
+    formData.append("file", fileData, "video.mp4");
+    if (languageParam) {
+      formData.append("language", languageParam);
+    }
+    formData.append("return_timestamps", "word");
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Hugging Face API error: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+
+    // Handle model loading state (first request can take time)
+    if (result.error && result.error.includes("loading")) {
+      logger.info("Model is loading, waiting and retrying...", { model });
+      // Wait 10 seconds and retry once
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+      const retryResponse = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: formData,
+      });
+      if (!retryResponse.ok) {
+        const retryErrorText = await retryResponse.text();
+        throw new Error(`Hugging Face API error after retry: ${retryResponse.status} - ${retryErrorText}`);
+      }
+      const retryResult = await retryResponse.json();
+      // Use retry result
+      Object.assign(result, retryResult);
+    }
+
+    // Process response into Caption format
+    const captions: Caption[] = [];
+
+    if (result.text && result.chunks) {
+      // Process chunks with timestamps
+      result.chunks.forEach((chunk: any, index: number) => {
+        const words: Word[] | undefined = chunk.timestamp
+          ? [
+              {
+                text: chunk.text || "",
+                start: chunk.timestamp[0] || 0,
+                end: chunk.timestamp[1] || 0,
+              },
+            ]
+          : undefined;
+
+        captions.push({
+          id: index + 1,
+          start: chunk.timestamp?.[0] || 0,
+          end: chunk.timestamp?.[1] || 0,
+          text: chunk.text || "",
+          words,
+        });
+      });
+    } else if (result.text) {
+      // Fallback: single caption if no chunks
+      captions.push({
+        id: 1,
+        start: 0,
+        end: result.duration || 0,
+        text: result.text,
+      });
+    }
+
+    logger.info("Hugging Face transcription completed", {
+      captionCount: captions.length,
+      language: language || "auto",
+    });
+
+    return captions;
+  } catch (error) {
+    logger.error("Hugging Face transcription failed", error as Error, {
+      language: language || "auto",
+    });
+    throw error;
+  }
+}
+
+/**
  * Generate captions from video file using OpenAI Whisper API
  * @param videoFile - The video file (MP4) to transcribe
  * @param language - Optional language code ('hi', 'en', or 'auto')
  * @returns Array of captions with timestamps
  */
-export async function generateCaptions(
+async function generateCaptionsOpenAI(
   videoFile: File | Buffer,
   language?: "hi" | "en" | "auto"
 ): Promise<Caption[]> {
@@ -79,13 +229,57 @@ export async function generateCaptions(
       }
     }
 
+    logger.info("OpenAI transcription completed", {
+      captionCount: captions.length,
+      language: language || "auto",
+    });
+
     return captions;
   } catch (error) {
-    console.error("STT Error:", error);
+    logger.error("OpenAI transcription failed", error as Error, {
+      language: language || "auto",
+    });
+
     if (error instanceof Error) {
       throw new Error(`Failed to generate captions: ${error.message}`);
     }
     throw new Error("Failed to generate captions: Unknown error");
+  }
+}
+
+/**
+ * Generate captions from video file
+ * Automatically selects provider based on configuration
+ * @param videoFile - The video file (MP4) to transcribe
+ * @param language - Optional language code ('hi', 'en', or 'auto')
+ * @returns Array of captions with timestamps
+ */
+export async function generateCaptions(
+  videoFile: File | Buffer,
+  language?: "hi" | "en" | "auto"
+): Promise<Caption[]> {
+  const provider = getSTTProvider();
+
+  try {
+    if (provider === "huggingface") {
+      return await generateCaptionsHuggingFace(videoFile, language);
+    } else {
+      return await generateCaptionsOpenAI(videoFile, language);
+    }
+  } catch (error) {
+    // If primary provider fails, try fallback
+    if (provider === "huggingface" && process.env.OPENAI_API_KEY) {
+      logger.warn("Hugging Face failed, falling back to OpenAI", {
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      return await generateCaptionsOpenAI(videoFile, language);
+    } else if (provider === "openai" && process.env.HUGGINGFACE_API_KEY) {
+      logger.warn("OpenAI failed, falling back to Hugging Face", {
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      return await generateCaptionsHuggingFace(videoFile, language);
+    }
+    throw error;
   }
 }
 
@@ -115,7 +309,11 @@ export async function generateCaptionsWithRetry(
       if (isRateLimit && attempt < maxRetries - 1) {
         // Exponential backoff: wait 2^attempt seconds
         const waitTime = Math.pow(2, attempt) * 1000;
-        console.log(`Rate limited. Retrying in ${waitTime}ms...`);
+        logger.warn("Rate limited, retrying with exponential backoff", {
+          attempt: attempt + 1,
+          maxRetries,
+          waitTimeMs: waitTime,
+        });
         await new Promise((resolve) => setTimeout(resolve, waitTime));
         continue;
       }
