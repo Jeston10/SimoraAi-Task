@@ -43,30 +43,115 @@ next-env.d.ts
 # ============================================
 # Environment Variables & Sensitive Files
 # ============================================
+# All .env files (including variations)
 .env
+.env.*
 .env*.local
 .env.development.local
 .env.test.local
 .env.production.local
 .env.local
+.env.development
+.env.production
+.env.staging
+.env.template.local
+.env.backup
+.env.old
+.env.save
+*.env
+*.env.*
+.envrc
+.envrc.local
+
+# ============================================
+# API Keys & Credentials
+# ============================================
+# API key files
+**/api-keys.json
+**/api-keys.*
+**/credentials.json
+**/credentials.*
+**/secrets.json
+**/secrets.*
+**/*api-key*
+**/*apikey*
+**/*api_key*
+**/*-key*
+**/*-keys*
+**/*.key
+**/*.keys
+**/*.token
+**/*.tokens
+**/*.secret
+**/*.secrets
+**/*.password
+**/*.passwords
+**/*.passwd
+**/*.pwd
+**/*.auth
+**/*.authz
+**/*.credential
+**/*.cred
+**/*.access
+**/*.access-token
+**/*.refresh-token
+**/*.bearer-token
+**/*.jwt
+**/*.session
+**/*.session-token
+
+# Credential directories
+**/credentials/
+**/secrets/
+**/api-keys/
+**/keys/
+**/tokens/
+**/auth/
+**/.credentials/
+**/.secrets/
+**/.keys/
+**/.tokens/
+
+# ============================================
+# Security Keys & Certificates
+# ============================================
 *.key
 *.pem
 *.p12
 *.pfx
 *.crt
 *.cer
-secrets/
-.secrets
-config/secrets.json
+*.jks
+*.keystore
+*.truststore
+*.p7b
+*.p7c
+*.p7m
+*.p7s
+*.der
+*.csr
+*.keypair
+*.private
+*.public
+*.pub
+*.priv
+*.id_rsa
+*.id_ed25519
+*.id_ecdsa
+*.id_dsa
+*.ssh
+*.gpg
+*.pgp
+*.asc
 
-# ============================================
-# API Keys & Credentials
-# ============================================
-**/api-keys.json
-**/credentials.json
-**/secrets.json
-*.env
-.envrc
+# Certificate directories
+**/certs/
+**/certificates/
+**/ssl/
+**/tls/
+**/.ssh/
+**/.gpg/
+**/.keys/
 
 # ============================================
 # Vercel
@@ -330,9 +415,9 @@ output-videos/
 !/public/samples/.gitkeep
 
 # ============================================
-# Security & Sensitive
+# Security & Sensitive Files
 # ============================================
-# Never commit these
+# Never commit these - comprehensive list
 *.pem
 *.key
 *.crt
@@ -341,13 +426,109 @@ output-videos/
 *.cer
 *.jks
 *.keystore
+*.truststore
+*.secret
+*.private
+*.password
+*.passwd
+*.pwd
+*.token
+*.auth
+*.credential
+*.cred
+*.access
+*.session
+*.jwt
+*.bearer
+*.refresh
+*.api-key
+*.apikey
+*.api_key
+*.service-account
+*.serviceaccount
+*.oauth
+*.oauth2
+*.client-secret
+*.client_id
+*.app-secret
+*.app-id
+*.webhook-secret
+*.webhook-token
+*.signing-key
+*.signing-secret
+*.encryption-key
+*.encryption-secret
+*.master-key
+*.master-secret
+*.admin-key
+*.admin-secret
+*.root-password
+*.db-password
+*.database-password
+*.db-credential
+*.db-credentials
+*.connection-string
+*.connection-uri
+*.mongodb-uri
+*.postgres-uri
+*.mysql-uri
+*.redis-uri
+*.supabase-key
+*.supabase-url
+*.supabase-service-role-key
+*.huggingface-key
+*.huggingface-token
+*.huggingface-api-key
+*.openai-key
+*.openai-api-key
+*.openai-token
+*.sentry-dsn
+*.sentry-dsn-key
+*.vercel-token
+*.vercel-blob-token
+*.aws-access-key
+*.aws-secret-key
+*.aws-credentials
+*.gcp-credentials
+*.gcp-key
+*.azure-key
+*.azure-credentials
+
+# Sensitive directories
 secrets/
-.secrets
+.secrets/
 **/secrets/**
 **/credentials/**
 **/api-keys/**
-*.secret
-*.private
+**/keys/**
+**/tokens/**
+**/auth/**
+**/.credentials/**
+**/.secrets/**
+**/.keys/**
+**/.tokens/**
+**/.auth/**
+**/config/secrets/**
+**/config/credentials/**
+**/config/keys/**
+**/private/**
+**/.private/**
+
+# Configuration files that might contain secrets
+config.local.*
+config.*.local
+config.*.secret
+config.*.private
+settings.local.*
+settings.*.local
+settings.*.secret
+settings.*.private
+*.config.local
+*.config.secret
+*.config.private
+*.settings.local
+*.settings.secret
+*.settings.private
 
 # ============================================
 # Documentation Build (if using docs generators)
