@@ -38,17 +38,28 @@ A full-stack web application that allows users to upload MP4 videos, automatical
 
 3. **Set up environment variables**
    
-   Copy the example environment file:
-   ```bash
-   cp env.example .env.local
-   ```
-   
-   Edit `.env.local` and add your API keys:
+   Create a `.env.local` file in the root directory and add your API keys:
    ```env
+   # OpenAI API (required for speech-to-text)
    OPENAI_API_KEY=sk-your-openai-api-key-here
+   
+   # Vercel Blob Storage (optional - for small file uploads < 3.5MB)
    VERCEL_BLOB_STORAGE_TOKEN=your-vercel-blob-token-here
    VERCEL_BLOB_STORAGE_URL=your-vercel-blob-url-here
+   
+   # Supabase (required for large file uploads > 3.5MB)
+   # Get these from: Supabase Dashboard > Settings > API
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+   SUPABASE_STORAGE_BUCKET=videos
+   
+   # Supabase Client-side (required for direct uploads)
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+   NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET=videos
    ```
+   
+   **Note**: For large file uploads (>3.5MB), Supabase configuration is required. Without it, only files smaller than 3.5MB can be uploaded.
 
 4. **Run the development server**
    ```bash
@@ -213,11 +224,28 @@ For better performance and longer videos, use the CLI render script:
 
 ### Environment Variables for Production
 
-Make sure to set these in your Vercel project settings:
-- `OPENAI_API_KEY`
-- `VERCEL_BLOB_STORAGE_TOKEN`
-- `VERCEL_BLOB_STORAGE_URL`
-- `NEXT_PUBLIC_APP_URL`
+Make sure to set these in your Vercel project settings (Settings > Environment Variables):
+
+**Required:**
+- `OPENAI_API_KEY` - Your OpenAI API key for speech-to-text
+
+**Required for Large File Uploads (>3.5MB):**
+- `SUPABASE_URL` - Your Supabase project URL (from Dashboard > Settings > API > Project URL)
+- `SUPABASE_SERVICE_ROLE_KEY` - Your Supabase service role key (from Dashboard > Settings > API > service_role key - **keep this secret!**)
+- `SUPABASE_STORAGE_BUCKET` - Storage bucket name (default: "videos")
+- `NEXT_PUBLIC_SUPABASE_URL` - Same as SUPABASE_URL (public, safe to expose)
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Your Supabase anon/public key (from Dashboard > Settings > API > anon public key)
+- `NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET` - Same as SUPABASE_STORAGE_BUCKET (default: "videos")
+
+**Optional (for small files < 3.5MB):**
+- `VERCEL_BLOB_STORAGE_TOKEN` - Vercel Blob Storage token
+- `VERCEL_BLOB_STORAGE_URL` - Vercel Blob Storage URL
+- `NEXT_PUBLIC_APP_URL` - Your app URL (for production)
+
+**Important Notes:**
+- Files larger than 3.5MB require Supabase configuration
+- Without Supabase, only files smaller than 3.5MB can be uploaded (due to Vercel's 4.5MB serverless function limit)
+- The `SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security (RLS) - keep it secret and never expose it to the client
 
 ## 🔍 Caption Generation Method
 

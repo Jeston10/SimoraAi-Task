@@ -80,8 +80,20 @@ export const VideoUpload: React.FC<VideoUploadProps> = ({
           });
 
           if (!signResponse.ok) {
+            // Handle 405 Method Not Allowed specifically
+            if (signResponse.status === 405) {
+              throw new Error(
+                "Method not allowed. The upload endpoint may not be properly deployed. " +
+                "Please check that the route /api/upload/sign exists and supports POST method. " +
+                "If this persists, try redeploying your application."
+              );
+            }
+            
             const errorText = await signResponse.text();
-            throw new Error(errorText || "Failed to create signed upload URL");
+            throw new Error(
+              errorText || 
+              `Failed to create signed upload URL (Status: ${signResponse.status} ${signResponse.statusText})`
+            );
           }
 
           const signData = await signResponse.json();
