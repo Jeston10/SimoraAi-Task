@@ -15,10 +15,29 @@ export const dynamic = "force-dynamic";
 
 // Vercel's serverless function limit is 4.5MB
 // For larger files, use direct Supabase uploads from the client
-const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB (slightly below Vercel's 4.5MB limit)
+// Using 3.5MB to account for request overhead (headers, form data, etc.)
+const MAX_FILE_SIZE = 3.5 * 1024 * 1024; // 3.5MB (conservative to avoid Vercel's 4.5MB limit)
 
 export async function POST(request: NextRequest) {
   try {
+    // Early check: Reject if Content-Length indicates file is too large
+    // This helps catch the issue before Vercel rejects it
+    const contentLength = request.headers.get("content-length");
+    if (contentLength) {
+      const size = parseInt(contentLength, 10);
+      if (size > MAX_FILE_SIZE) {
+        return NextResponse.json<VideoUploadResponse>(
+          {
+            success: false,
+            message: `Request payload (${formatFileSize(size)}) exceeds the server upload limit of ${formatFileSize(MAX_FILE_SIZE)}. ` +
+              `For larger files, please configure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for direct uploads, ` +
+              `or compress your video file.`,
+          },
+          { status: 413 } // 413 Payload Too Large
+        );
+      }
+    }
+
     // Validate environment variables early to prevent runtime errors
     const hasStorage = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
     

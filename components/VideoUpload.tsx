@@ -14,7 +14,8 @@ import type { VideoUploadResponse, Video } from "@/types";
 
 // Vercel's serverless function limit is 4.5MB
 // Files larger than this should use direct upload
-const VERCEL_LIMIT = 4 * 1024 * 1024; // 4MB (slightly below 4.5MB for safety)
+// Using 3.5MB to account for request overhead (headers, form data, etc.)
+const VERCEL_LIMIT = 3.5 * 1024 * 1024; // 3.5MB (conservative to avoid Vercel's 4.5MB limit)
 
 interface VideoUploadProps {
   onUploadSuccess: (video: Video, file: File) => void;
@@ -47,8 +48,9 @@ export const VideoUpload: React.FC<VideoUploadProps> = ({
       try {
         let data: VideoUploadResponse;
 
-        // For large files (>4MB), request a signed upload URL & upload directly to Supabase
+        // For large files (>3.5MB), request a signed upload URL & upload directly to Supabase
         // This keeps large files off Vercel functions and bypasses Supabase RLS policies
+        // Vercel has a hard 4.5MB limit, so we use 3.5MB to account for request overhead
         if (file.size > VERCEL_LIMIT) {
           const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
           const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -58,7 +60,7 @@ export const VideoUpload: React.FC<VideoUploadProps> = ({
             throw new Error(
               "Large file upload requires Supabase configuration. " +
                 "Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment variables. " +
-                "Alternatively, use files smaller than 4MB."
+                "Alternatively, use files smaller than 3.5MB."
             );
           }
 
@@ -118,40 +120,74 @@ export const VideoUpload: React.FC<VideoUploadProps> = ({
           formData.append("file", file);
 
           // Upload file
-          const response = await fetch("/api/upload", {
-            method: "POST",
-            body: formData,
-          });
+          let response: Response;
+          try {
+            response = await fetch("/api/upload", {
+              method: "POST",
+              body: formData,
+            });
+          } catch (networkError) {
+            // Network errors might occur if Vercel rejects the request
+            // Check if it's a payload too large error
+            const errorMessage = networkError instanceof Error ? networkError.message : String(networkError);
+            if (errorMessage.includes("FUNCTION_PAYLOAD_TOO_LARGE") || errorMessage.includes("Payload Too Large") || errorMessage.includes("413")) {
+              throw new Error(
+                "File is too large for server upload. " +
+                "Please ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are configured for direct uploads, " +
+                "or use a file smaller than 3.5MB."
+              );
+            }
+            throw networkError;
+          }
 
           // Check if response is ok before parsing
           if (!response.ok) {
             // Handle Vercel's payload too large error specifically
-            if (response.status === 413 || response.statusText.includes("Payload Too Large")) {
+            const responseText = response.statusText || "";
+            const statusText = responseText.toLowerCase();
+            if (response.status === 413 || 
+                statusText.includes("payload too large") || 
+                statusText.includes("function_payload_too_large") ||
+                statusText.includes("request entity too large")) {
               throw new Error(
                 "File is too large for server upload. " +
                 "Please ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are configured for direct uploads, " +
-                "or use a file smaller than 4MB."
+                "or use a file smaller than 3.5MB."
               );
             }
 
             // Try to parse error response, but handle empty/invalid JSON
             let errorMessage = `Server error: ${response.status} ${response.statusText}`;
             try {
-              const contentType = response.headers.get("content-type");
-              if (contentType && contentType.includes("application/json")) {
-                const errorText = await response.text();
-                if (errorText && errorText.trim()) {
-                  const errorData = JSON.parse(errorText);
-                  errorMessage = errorData.message || errorData.error || errorMessage;
+              const errorText = await response.text();
+              if (errorText && errorText.trim()) {
+                // Check if it's Vercel's FUNCTION_PAYLOAD_TOO_LARGE error
+                if (errorText.includes("FUNCTION_PAYLOAD_TOO_LARGE") || 
+                    errorText.includes("Request Entity Too Large") ||
+                    errorText.includes("Payload Too Large")) {
+                  throw new Error(
+                    "File is too large for server upload. " +
+                    "Please ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are configured for direct uploads, " +
+                    "or use a file smaller than 3.5MB."
+                  );
                 }
-              } else {
-                const errorText = await response.text();
-                if (errorText && errorText.trim()) {
+                
+                // Try to parse as JSON
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                  try {
+                    const errorData = JSON.parse(errorText);
+                    errorMessage = errorData.message || errorData.error || errorMessage;
+                  } catch {
+                    // Not valid JSON, use text as-is
+                    errorMessage = errorText.substring(0, 200);
+                  }
+                } else {
                   errorMessage = errorText.substring(0, 200);
                 }
               }
             } catch (parseError) {
-              // If JSON parsing fails, use status text
+              // If parsing fails, use status text
               console.error("Failed to parse error response:", parseError);
             }
             throw new Error(errorMessage);
@@ -315,7 +351,7 @@ export const VideoUpload: React.FC<VideoUploadProps> = ({
                 Drop your MP4 video here, or click to browse
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                Maximum file size: 100MB (files over 4MB use direct upload)
+                Maximum file size: 100MB (files over 3.5MB use direct upload)
               </p>
             </div>
           </div>
