@@ -7,9 +7,8 @@
  */
 
 import { useState, useRef, useCallback } from "react";
-import { isValidMP4File, formatFileSize, generateId } from "@/lib/utils";
+import { isValidMP4File, formatFileSize } from "@/lib/utils";
 import { getVideoMetadata } from "@/lib/video";
-import { createClient } from "@supabase/supabase-js";
 import type { VideoUploadResponse, Video } from "@/types";
 
 // Vercel's serverless function limit is 4.5MB
@@ -47,57 +46,71 @@ export const VideoUpload: React.FC<VideoUploadProps> = ({
       try {
         let data: VideoUploadResponse;
 
-        // For large files (>4MB), use direct Supabase upload to bypass Vercel's limit
+        // For large files (>4MB), use direct upload endpoint that uses service role key
+        // This bypasses both Vercel's 4.5MB limit and Supabase RLS policies
         if (file.size > VERCEL_LIMIT) {
-          // Check if Supabase is configured (we'll use environment variables)
-          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-          const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-          if (!supabaseUrl || !supabaseAnonKey) {
-            throw new Error(
-              "Large file upload requires Supabase configuration. " +
-              "Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment variables. " +
-              "Alternatively, use files smaller than 4MB."
-            );
-          }
-
-          // Generate unique file name
-          const videoId = generateId();
-          const fileName = `${videoId}-${file.name}`;
-          const bucket = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET || "videos";
-
-          // Create Supabase client
-          const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-          // Upload directly to Supabase
           setUploadProgress(10);
-          const { data: uploadData, error: uploadError } = await supabase.storage
-            .from(bucket)
-            .upload(fileName, file, {
-              cacheControl: "3600",
-              upsert: true,
-              contentType: file.type || "video/mp4",
-            });
 
-          if (uploadError) {
-            throw new Error(`Upload failed: ${uploadError.message}`);
+          // Use the direct upload endpoint which uses service role key (bypasses RLS)
+          const formData = new FormData();
+          formData.append("file", file);
+
+          const response = await fetch("/api/upload/direct", {
+            method: "POST",
+            body: formData,
+          });
+
+          setUploadProgress(50);
+
+          // Check if response is ok before parsing
+          if (!response.ok) {
+            let errorMessage = `Server error: ${response.status} ${response.statusText}`;
+            try {
+              const contentType = response.headers.get("content-type");
+              if (contentType && contentType.includes("application/json")) {
+                const errorText = await response.text();
+                if (errorText && errorText.trim()) {
+                  const errorData = JSON.parse(errorText);
+                  errorMessage = errorData.message || errorData.error || errorMessage;
+                }
+              } else {
+                const errorText = await response.text();
+                if (errorText && errorText.trim()) {
+                  errorMessage = errorText.substring(0, 200);
+                }
+              }
+            } catch (parseError) {
+              console.error("Failed to parse error response:", parseError);
+            }
+            throw new Error(errorMessage);
           }
 
-          setUploadProgress(90);
+          setUploadProgress(80);
 
-          // Get public URL
-          const { data: urlData } = supabase.storage
-            .from(bucket)
-            .getPublicUrl(fileName);
+          // Parse successful response
+          const contentType = response.headers.get("content-type");
+          if (!contentType || !contentType.includes("application/json")) {
+            throw new Error("Invalid response format from server");
+          }
+
+          const responseText = await response.text();
+          if (!responseText || !responseText.trim()) {
+            throw new Error("Empty response from server");
+          }
+
+          try {
+            data = JSON.parse(responseText);
+          } catch (parseError) {
+            console.error("Failed to parse JSON response:", parseError);
+            console.error("Response text:", responseText.substring(0, 200));
+            throw new Error("Invalid JSON response from server. Check server logs for details.");
+          }
+
+          if (!data.success || !data.videoId || !data.videoUrl) {
+            throw new Error(data.message || "Upload failed");
+          }
 
           setUploadProgress(100);
-
-          data = {
-            success: true,
-            videoId,
-            videoUrl: urlData.publicUrl,
-            message: "Video uploaded successfully",
-          };
         } else {
           // For smaller files, use the API route
           // Create FormData

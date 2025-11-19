@@ -19,6 +19,8 @@ const nextConfig = {
     // Enable instrumentation hook for Sentry
     instrumentationHook: true,
   },
+  // Note: Vercel serverless functions have a 4.5MB request body limit
+  // For files larger than 4.5MB, consider using chunked uploads or Vercel Pro plan
 };
 
 // Wrap with Sentry configuration
