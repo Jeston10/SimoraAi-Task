@@ -9,6 +9,7 @@
 import { useState, useRef, useCallback } from "react";
 import { isValidMP4File, formatFileSize } from "@/lib/utils";
 import { getVideoMetadata } from "@/lib/video";
+import { createClient } from "@supabase/supabase-js";
 import type { VideoUploadResponse, Video } from "@/types";
 
 // Vercel's serverless function limit is 4.5MB
@@ -46,69 +47,68 @@ export const VideoUpload: React.FC<VideoUploadProps> = ({
       try {
         let data: VideoUploadResponse;
 
-        // For large files (>4MB), use direct upload endpoint that uses service role key
-        // This bypasses both Vercel's 4.5MB limit and Supabase RLS policies
+        // For large files (>4MB), request a signed upload URL & upload directly to Supabase
+        // This keeps large files off Vercel functions and bypasses Supabase RLS policies
         if (file.size > VERCEL_LIMIT) {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+          const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+          const bucket = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET || "videos";
+
+          if (!supabaseUrl || !supabaseAnonKey) {
+            throw new Error(
+              "Large file upload requires Supabase configuration. " +
+                "Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment variables. " +
+                "Alternatively, use files smaller than 4MB."
+            );
+          }
+
           setUploadProgress(10);
 
-          // Use the direct upload endpoint which uses service role key (bypasses RLS)
-          const formData = new FormData();
-          formData.append("file", file);
-
-          const response = await fetch("/api/upload/direct", {
+          // Request signed upload URL/token from server (uses service role key)
+          const signResponse = await fetch("/api/upload/sign", {
             method: "POST",
-            body: formData,
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              fileName: file.name,
+              fileSize: file.size,
+              contentType: file.type || "video/mp4",
+            }),
           });
 
-          setUploadProgress(50);
-
-          // Check if response is ok before parsing
-          if (!response.ok) {
-            let errorMessage = `Server error: ${response.status} ${response.statusText}`;
-            try {
-              const contentType = response.headers.get("content-type");
-              if (contentType && contentType.includes("application/json")) {
-                const errorText = await response.text();
-                if (errorText && errorText.trim()) {
-                  const errorData = JSON.parse(errorText);
-                  errorMessage = errorData.message || errorData.error || errorMessage;
-                }
-              } else {
-                const errorText = await response.text();
-                if (errorText && errorText.trim()) {
-                  errorMessage = errorText.substring(0, 200);
-                }
-              }
-            } catch (parseError) {
-              console.error("Failed to parse error response:", parseError);
-            }
-            throw new Error(errorMessage);
+          if (!signResponse.ok) {
+            const errorText = await signResponse.text();
+            throw new Error(errorText || "Failed to create signed upload URL");
           }
 
-          setUploadProgress(80);
-
-          // Parse successful response
-          const contentType = response.headers.get("content-type");
-          if (!contentType || !contentType.includes("application/json")) {
-            throw new Error("Invalid response format from server");
+          const signData = await signResponse.json();
+          if (!signData.success || !signData.token || !signData.filePath) {
+            throw new Error(signData.message || "Failed to create signed upload URL");
           }
 
-          const responseText = await response.text();
-          if (!responseText || !responseText.trim()) {
-            throw new Error("Empty response from server");
+          setUploadProgress(40);
+
+          // Upload directly to Supabase using signed URL/token
+          const supabase = createClient(supabaseUrl, supabaseAnonKey);
+          const { error: uploadError } = await supabase.storage
+            .from(signData.bucket || bucket)
+            .uploadToSignedUrl(signData.filePath, signData.token, file, {
+              contentType: file.type || "video/mp4",
+            });
+
+          if (uploadError) {
+            throw new Error(`Upload failed: ${uploadError.message}`);
           }
 
-          try {
-            data = JSON.parse(responseText);
-          } catch (parseError) {
-            console.error("Failed to parse JSON response:", parseError);
-            console.error("Response text:", responseText.substring(0, 200));
-            throw new Error("Invalid JSON response from server. Check server logs for details.");
-          }
+          setUploadProgress(90);
 
-          if (!data.success || !data.videoId || !data.videoUrl) {
-            throw new Error(data.message || "Upload failed");
-          }
+          data = {
+            success: true,
+            videoId: signData.videoId,
+            videoUrl: signData.publicUrl,
+            message: "Video uploaded successfully",
+          };
 
           setUploadProgress(100);
         } else {
@@ -179,6 +179,11 @@ export const VideoUpload: React.FC<VideoUploadProps> = ({
           if (!data.success || !data.videoId || !data.videoUrl) {
             throw new Error(data.message || "Upload failed");
           }
+        }
+
+        // Validate response data
+        if (!data.videoId || !data.videoUrl) {
+          throw new Error(data.message || "Upload failed: Missing video ID or URL");
         }
 
         // Get video metadata from client-side
