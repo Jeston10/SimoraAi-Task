@@ -50,12 +50,50 @@ export const CaptionGenerator: React.FC<CaptionGeneratorProps> = ({
 
       setProgress("Processing audio...");
 
+      // Check if response is ok before parsing
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to generate captions");
+        // Try to parse error response, but handle empty/invalid JSON
+        let errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        try {
+          const contentType = response.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const errorText = await response.text();
+            if (errorText) {
+              const errorData = JSON.parse(errorText);
+              errorMessage = errorData.message || errorData.error || errorMessage;
+            }
+          } else {
+            const errorText = await response.text();
+            if (errorText) {
+              errorMessage = errorText;
+            }
+          }
+        } catch (parseError) {
+          // If JSON parsing fails, use status text
+          console.error("Failed to parse error response:", parseError);
+        }
+        throw new Error(errorMessage);
       }
 
-      const data: CaptionGenerationResponse = await response.json();
+      // Parse successful response
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Invalid response format from server");
+      }
+
+      const responseText = await response.text();
+      if (!responseText) {
+        throw new Error("Empty response from server");
+      }
+
+      let data: CaptionGenerationResponse;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("Failed to parse JSON response:", parseError);
+        console.error("Response text:", responseText.substring(0, 200));
+        throw new Error("Invalid JSON response from server. Check server logs for details.");
+      }
 
       if (!data.success || !data.captions) {
         throw new Error(data.message || "Failed to generate captions");

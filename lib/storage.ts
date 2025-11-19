@@ -45,6 +45,70 @@ const getSupabaseClient = () => {
 };
 
 /**
+ * Ensure Supabase bucket exists (creates if missing)
+ */
+const ensureSupabaseBucket = async (bucket: string) => {
+  const supabase = getSupabaseClient();
+
+  // First, try to get the bucket
+  const { data: bucketInfo, error: bucketError } = await supabase.storage.getBucket(bucket);
+
+  if (bucketInfo) {
+    // Bucket exists, check if it's public
+    if (!bucketInfo.public) {
+      logger.warn("Bucket exists but is not public. Attempting to update...", { bucket });
+      // Try to update bucket to be public
+      const { error: updateError } = await supabase.storage.updateBucket(bucket, {
+        public: true,
+      });
+      if (updateError) {
+        logger.warn("Could not update bucket to public. You may need to do this manually in Supabase Dashboard", {
+          bucket,
+          error: updateError.message,
+        });
+      } else {
+        logger.info("Bucket updated to public", { bucket });
+      }
+    }
+    return supabase;
+  }
+
+  // If bucket not found, attempt to create it
+  if (bucketError) {
+    const errorMsg = bucketError.message?.toLowerCase() || String(bucketError).toLowerCase();
+    if (!errorMsg.includes("not found") && !errorMsg.includes("does not exist")) {
+      logger.error("Error checking bucket", bucketError as Error, { bucket });
+      throw bucketError;
+    }
+  }
+
+  // Create bucket as public
+  logger.info("Creating Supabase bucket", { bucket });
+  const { error: createError } = await supabase.storage.createBucket(bucket, {
+    public: true,
+    fileSizeLimit: 1024 * 1024 * 1024, // 1GB limit to match free tier
+    allowedMimeTypes: ["video/mp4", "video/*"], // Allow video files
+  });
+
+  if (createError) {
+    const errorMsg = createError.message?.toLowerCase() || String(createError).toLowerCase();
+    if (!errorMsg.includes("already exists") && !errorMsg.includes("duplicate")) {
+      logger.error("Failed to create bucket", createError as Error, { bucket });
+      throw new Error(
+        `Failed to create bucket "${bucket}": ${createError.message}. ` +
+        `Please create it manually in Supabase Dashboard > Storage and make it public.`
+      );
+    } else {
+      logger.info("Bucket already exists (created by another process)", { bucket });
+    }
+  } else {
+    logger.info("Supabase bucket created successfully", { bucket });
+  }
+
+  return supabase;
+};
+
+/**
  * Upload file to Supabase Storage (FREE, open-source)
  */
 async function uploadToSupabase(
@@ -52,10 +116,10 @@ async function uploadToSupabase(
   file: File | Buffer,
   _config?: StorageConfig
 ): Promise<{ url: string; size: number }> {
-  const supabase = getSupabaseClient();
   const bucket = process.env.SUPABASE_STORAGE_BUCKET || "videos";
 
   try {
+    const supabase = await ensureSupabaseBucket(bucket);
     logger.info("Uploading file to Supabase Storage", {
       fileName,
       bucket,
@@ -73,16 +137,87 @@ async function uploadToSupabase(
     }
 
     // Upload to Supabase
-    const { error } = await supabase.storage
+    const { data: uploadData, error } = await supabase.storage
       .from(bucket)
       .upload(fileName, fileBlob, {
         cacheControl: "3600",
-        upsert: false,
+        upsert: true, // Allow overwriting existing files
+        contentType: fileBlob.type || "video/mp4",
       });
 
     if (error) {
-      throw error;
+      // Provide more detailed error message
+      const errorMessage = error.message || String(error);
+      const errorCode = (error as any).statusCode || (error as any).code;
+      
+      logger.error("Supabase upload error", error as Error, {
+        fileName,
+        bucket,
+        errorMessage,
+        errorCode,
+        fileSize: file instanceof File ? file.size : file.length,
+      });
+      
+      // Check for specific error types
+      const errorLower = errorMessage.toLowerCase();
+      
+      if (errorLower.includes("bucket not found") || errorLower.includes("not found") || errorCode === 404) {
+        throw new Error(
+          `Bucket "${bucket}" not found. ` +
+          `Please create it in Supabase Dashboard > Storage and make it public. ` +
+          `Or check that SUPABASE_STORAGE_BUCKET environment variable matches your bucket name.`
+        );
+      }
+      
+      if (
+        errorLower.includes("row-level security") ||
+        errorLower.includes("permission denied") ||
+        errorLower.includes("access denied") ||
+        errorLower.includes("policy") ||
+        errorCode === 403
+      ) {
+        throw new Error(
+          `Access denied to bucket "${bucket}". ` +
+          `This is usually caused by Row Level Security (RLS) policies. ` +
+          `Solutions:\n` +
+          `1. Make the bucket public: Supabase Dashboard > Storage > ${bucket} > Settings > Make Public\n` +
+          `2. Or disable RLS for this bucket (not recommended for production)\n` +
+          `3. Or add a policy allowing service_role key access`
+        );
+      }
+      
+      if (errorLower.includes("duplicate") || errorLower.includes("already exists") || errorCode === 409) {
+        // Try with upsert
+        logger.info("File exists, retrying with upsert", { fileName });
+        const { error: retryError } = await supabase.storage
+          .from(bucket)
+          .upload(fileName, fileBlob, {
+            cacheControl: "3600",
+            upsert: true,
+            contentType: fileBlob.type || "video/mp4",
+          });
+        if (retryError) {
+          throw new Error(`File "${fileName}" already exists and could not be overwritten: ${retryError.message}`);
+        }
+      }
+      
+      if (errorLower.includes("file too large") || errorCode === 413) {
+        throw new Error(`File is too large. Supabase free tier limit is 1GB per file.`);
+      }
+      
+      // Generic error with full details
+      throw new Error(
+        `Supabase upload failed: ${errorMessage} ` +
+        `(Code: ${errorCode || "unknown"}). ` +
+        `Check your SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local`
+      );
     }
+    
+    logger.info("File uploaded successfully", {
+      fileName,
+      path: uploadData?.path,
+      bucket,
+    });
 
     // Get public URL
     const { data: urlData } = supabase.storage

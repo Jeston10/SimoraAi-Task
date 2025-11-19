@@ -10,11 +10,13 @@
     "remotion": "remotion studio"
   },
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@remotion/cli": "^4.0.0",
     "@remotion/player": "^4.0.0",
     "@sentry/nextjs": "^10.25.0",
     "@supabase/supabase-js": "^2.81.1",
     "@vercel/blob": "^0.23.0",
+    "fluent-ffmpeg": "^2.1.3",
     "next": "^14.2.5",
     "openai": "^4.20.1",
     "react": "^18.2.0",
@@ -22,14 +24,15 @@
     "remotion": "^4.0.0"
   },
   "devDependencies": {
+    "@types/fluent-ffmpeg": "^2.1.28",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.18",
-    "autoprefixer": "^10.4.16",
+    "autoprefixer": "^10.4.22",
     "eslint": "^8.56.0",
     "eslint-config-next": "^14.2.5",
-    "postcss": "^8.4.32",
-    "tailwindcss": "^3.4.1",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.18",
     "typescript": "^5.3.3"
   }
 }

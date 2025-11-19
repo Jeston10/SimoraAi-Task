@@ -1,4 +1,15 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+#
+# This .gitignore file comprehensively covers:
+# - Dependencies (node_modules, package manager files)
+# - Build outputs (.next, dist, build)
+# - Environment variables and sensitive files (.env.*)
+# - API keys, credentials, and security files
+# - Cache and temporary files
+# - IDE and OS-specific files
+# - Media files (videos, audio)
+# - Documentation files (*.md except README.md)
+# - Project-specific outputs (captions, rendered videos)
 
 # ============================================
 # Dependencies
@@ -413,6 +424,16 @@ output-videos/
 # Sample/test videos (keep structure, ignore content)
 /public/samples/*
 !/public/samples/.gitkeep
+
+# Documentation files (keep only README.md)
+*.md
+!README.md
+
+# Template files with sensitive data
+env.template
+env.minimal
+*.template
+*.example.local
 
 # ============================================
 # Security & Sensitive Files
