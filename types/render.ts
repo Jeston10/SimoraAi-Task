@@ -24,6 +24,7 @@ export interface RenderJob {
 
 export interface RenderRequest {
   videoId: string;
+  videoUrl?: string; // Original video URL for fallback download
   captions: Caption[];
   style: CaptionStyleId;
   quality?: RenderQuality;

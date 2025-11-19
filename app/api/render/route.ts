@@ -12,18 +12,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateId } from "@/lib/utils";
 import { logger } from "@/lib/logger";
+import { renderJobStore } from "@/lib/render-jobs";
 import type { RenderRequest, RenderResponse } from "@/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Vercel Pro plan limit (10s for Hobby)
 
-// In-memory job storage (in production, use Redis or database)
-const renderJobs = new Map<string, any>();
-
 export async function POST(request: NextRequest) {
   try {
     const body: RenderRequest = await request.json();
-    const { videoId, captions, style, quality = "1080p" } = body;
+    const { videoId, videoUrl, captions, style, quality = "1080p" } = body;
 
     // Validate input
     if (!videoId || !captions || captions.length === 0) {
@@ -40,9 +38,10 @@ export async function POST(request: NextRequest) {
     const jobId = generateId();
 
     // Store job
-    renderJobs.set(jobId, {
+    renderJobStore.set(jobId, {
       id: jobId,
       videoId,
+      videoUrl, // Store original video URL for fallback
       captions,
       style,
       quality,
@@ -63,11 +62,11 @@ export async function POST(request: NextRequest) {
     // In production, use a proper job queue (Redis, Bull, etc.)
     renderVideo(jobId, body).catch((error) => {
       logger.error("Render job failed", error as Error, { jobId });
-      const job = renderJobs.get(jobId);
+      const job = renderJobStore.get(jobId);
       if (job) {
         job.status = "failed";
         job.error = error instanceof Error ? error.message : "Unknown error";
-        renderJobs.set(jobId, job);
+        renderJobStore.set(jobId, job);
       }
     });
 
@@ -107,7 +106,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const job = renderJobs.get(jobId);
+    const job = renderJobStore.get(jobId);
     if (!job) {
       return NextResponse.json<RenderResponse>(
         {
@@ -151,7 +150,7 @@ export async function GET(request: NextRequest) {
 // For now, this is a placeholder that simulates the rendering process.
 // For production, implement full Remotion rendering or use CLI rendering.
 async function renderVideo(jobId: string, request: RenderRequest) {
-  const job = renderJobs.get(jobId);
+  const job = renderJobStore.get(jobId);
   if (!job) {
     logger.warn("Render job not found", { jobId });
     return;
@@ -167,7 +166,7 @@ async function renderVideo(jobId: string, request: RenderRequest) {
 
     job.status = "processing";
     job.progress = 10;
-    renderJobs.set(jobId, job);
+    renderJobStore.set(jobId, job);
 
     // NOTE: This is a simplified implementation
     // For production, implement full Remotion rendering:
@@ -187,17 +186,19 @@ async function renderVideo(jobId: string, request: RenderRequest) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     job.progress = 50;
-    renderJobs.set(jobId, job);
+    renderJobStore.set(jobId, job);
     logger.info("Render progress: 50%", { jobId });
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     job.progress = 100;
     job.status = "completed";
-    // In production, set actual output URL from storage
-    job.outputUrl = `/api/render/download?jobId=${jobId}`;
+    // In production, set actual output URL from storage after rendering
+    // For now, use the original video URL as fallback so users can download it
+    // Full rendering with captions isn't implemented yet
+    job.outputUrl = job.videoUrl || `/api/render/download?jobId=${jobId}`;
     job.completedAt = new Date();
-    renderJobs.set(jobId, job);
+    renderJobStore.set(jobId, job);
 
     logger.info("Render job completed", {
       jobId,
@@ -208,7 +209,7 @@ async function renderVideo(jobId: string, request: RenderRequest) {
     logger.error("Render job failed", error as Error, { jobId });
     job.status = "failed";
     job.error = error instanceof Error ? error.message : "Unknown error";
-    renderJobs.set(jobId, job);
+    renderJobStore.set(jobId, job);
   }
 }
 

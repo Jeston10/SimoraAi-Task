@@ -49,7 +49,50 @@ export const VideoUpload: React.FC<VideoUploadProps> = ({
           body: formData,
         });
 
-        const data: VideoUploadResponse = await response.json();
+        // Check if response is ok before parsing
+        if (!response.ok) {
+          // Try to parse error response, but handle empty/invalid JSON
+          let errorMessage = `Server error: ${response.status} ${response.statusText}`;
+          try {
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+              const errorText = await response.text();
+              if (errorText && errorText.trim()) {
+                const errorData = JSON.parse(errorText);
+                errorMessage = errorData.message || errorData.error || errorMessage;
+              }
+            } else {
+              const errorText = await response.text();
+              if (errorText && errorText.trim()) {
+                errorMessage = errorText.substring(0, 200);
+              }
+            }
+          } catch (parseError) {
+            // If JSON parsing fails, use status text
+            console.error("Failed to parse error response:", parseError);
+          }
+          throw new Error(errorMessage);
+        }
+
+        // Parse successful response
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          throw new Error("Invalid response format from server");
+        }
+
+        const responseText = await response.text();
+        if (!responseText || !responseText.trim()) {
+          throw new Error("Empty response from server");
+        }
+
+        let data: VideoUploadResponse;
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error("Failed to parse JSON response:", parseError);
+          console.error("Response text:", responseText.substring(0, 200));
+          throw new Error("Invalid JSON response from server. Check server logs for details.");
+        }
 
         if (!data.success || !data.videoId || !data.videoUrl) {
           throw new Error(data.message || "Upload failed");

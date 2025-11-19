@@ -16,6 +16,19 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
 export async function POST(request: NextRequest) {
   try {
+    // Validate environment variables early to prevent runtime errors
+    const hasStorage = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!hasStorage && !process.env.VERCEL_BLOB_STORAGE_TOKEN) {
+      return NextResponse.json<VideoUploadResponse>(
+        {
+          success: false,
+          message: "Storage provider not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, or VERCEL_BLOB_STORAGE_TOKEN in Vercel environment variables.",
+        },
+        { status: 500 }
+      );
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
 
