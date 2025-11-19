@@ -38,8 +38,8 @@ export function isValidMP4File(file: File): { valid: boolean; error?: string } {
     return { valid: false, error: "File must be an MP4 video" };
   }
 
-  // Check file size (100MB limit)
-  const maxSize = 100 * 1024 * 1024; // 100MB in bytes
+  // Check file size (100MB limit for storage, but server uploads limited to 4MB)
+  const maxSize = 100 * 1024 * 1024; // 100MB in bytes (storage limit)
   if (file.size > maxSize) {
     return { valid: false, error: "File size must be less than 100MB" };
   }

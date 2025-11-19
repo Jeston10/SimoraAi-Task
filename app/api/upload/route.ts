@@ -4,15 +4,18 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { generateId } from "@/lib/utils";
+import { generateId, formatFileSize } from "@/lib/utils";
 import { uploadToStorage } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import type { VideoUploadResponse } from "@/types";
 
 // Disable body parsing, we'll handle it manually for file uploads
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+// Vercel's serverless function limit is 4.5MB
+// For larger files, use direct Supabase uploads from the client
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB (slightly below Vercel's 4.5MB limit)
 
 export async function POST(request: NextRequest) {
   try {
@@ -59,9 +62,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json<VideoUploadResponse>(
         {
           success: false,
-          message: "File size must be less than 100MB",
+          message: `File size (${formatFileSize(file.size)}) exceeds the server upload limit of ${formatFileSize(MAX_FILE_SIZE)}. ` +
+            `For larger files, please configure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for direct uploads, ` +
+            `or compress your video file.`,
         },
-        { status: 400 }
+        { status: 413 } // 413 Payload Too Large
       );
     }
 
