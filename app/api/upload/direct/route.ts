@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Upload to Supabase using service role key (bypasses RLS)
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(fileName, file, {
         cacheControl: "3600",
