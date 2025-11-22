@@ -61,6 +61,18 @@ export const CaptionGenerator: React.FC<CaptionGeneratorProps> = ({
         }
       }
 
+      // If still failing with 404/405, try an alternate single-segment path
+      if (!response.ok && (response.status === 404 || response.status === 405)) {
+        try {
+          response = await fetch("/api/captions-generate", {
+            method: "POST",
+            body: formData,
+          });
+        } catch (altErr) {
+          // swallow and continue to error handling
+        }
+      }
+
       setProgress("Processing audio...");
 
       // Check if response is ok before parsing
