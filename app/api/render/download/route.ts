@@ -1,11 +1,4 @@
-/**
- * Video Download API Route
- * Handles downloading rendered videos
- * 
- * Note: Since full Remotion rendering isn't implemented yet,
- * this endpoint currently provides a helpful error message.
- * In production, implement full Remotion rendering to generate actual video files.
- */
+
 
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
