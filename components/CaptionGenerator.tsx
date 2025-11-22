@@ -43,10 +43,23 @@ export const CaptionGenerator: React.FC<CaptionGeneratorProps> = ({
 
       setProgress("Sending to transcription service...");
 
-      const response = await fetch("/api/captions/generate", {
+      // Try primary endpoint first, fall back to a backup route if unavailable
+      let response = await fetch("/api/captions/generate", {
         method: "POST",
         body: formData,
       });
+
+      if (!response.ok && (response.status === 404 || response.status === 405)) {
+        // Try fallback route if primary is not allowed or missing in this deployment
+        try {
+          response = await fetch("/api/captions/fallback-generate", {
+            method: "POST",
+            body: formData,
+          });
+        } catch (fallbackErr) {
+          // swallow and let outer catch handle
+        }
+      }
 
       setProgress("Processing audio...");
 
