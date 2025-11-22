@@ -24,11 +24,11 @@ const getFfmpegInstance = (): typeof fluentFfmpeg => {
     return ffmpegInstance;
   }
 
-  const requiredFfmpeg = eval("require")("fluent-ffmpeg") as typeof fluentFfmpeg & {
+  const requiredFfmpeg = require("fluent-ffmpeg") as typeof fluentFfmpeg & {
     default?: typeof fluentFfmpeg;
   };
   const ffmpegModule = requiredFfmpeg?.default ?? requiredFfmpeg;
-  const installer = eval("require")("@ffmpeg-installer/ffmpeg") as { path: string };
+  const installer = require("@ffmpeg-installer/ffmpeg") as { path: string };
 
   ffmpegModule.setFfmpegPath(installer.path);
   ffmpegInstance = ffmpegModule;
@@ -103,7 +103,7 @@ const bufferFromFile = async (file: File): Promise<Buffer> => {
 const getAudioDuration = async (audioPath: string): Promise<number> => {
   ensureServerRuntime();
   const { spawn } = await import("child_process");
-  const ffmpegInstaller = eval("require")("@ffmpeg-installer/ffmpeg") as { path: string };
+  const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg") as { path: string };
   const ffmpegPath = ffmpegInstaller.path;
 
   return new Promise<number>((resolve, reject) => {
