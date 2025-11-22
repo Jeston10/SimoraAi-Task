@@ -28,6 +28,13 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    // Log presence of STT keys for easier debugging in production logs
+    logger.info("Alternate captions: env check", {
+      hasHuggingFaceKey: !!process.env.HUGGINGFACE_API_KEY,
+      hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+      configuredProvider: process.env.STT_PROVIDER || "auto",
+    });
+
     const hasHuggingFace = !!process.env.HUGGINGFACE_API_KEY;
     const hasOpenAI = !!process.env.OPENAI_API_KEY;
 
@@ -87,7 +94,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json<CaptionGenerationResponse>({ success: true, captions, language: language === "auto" ? "auto" : language, message: `Successfully generated ${captions.length} captions (alternate)` });
   } catch (error) {
-    logger.error("Alternate caption generation error", error as Error);
-    return NextResponse.json<CaptionGenerationResponse>({ success: false, message: "Failed to generate captions (alternate)", error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
+    const errMsg = error instanceof Error ? error.message : String(error);
+    logger.error("Alternate caption generation error", error as Error, { message: errMsg });
+
+    // Provide the underlying error message in the response to help debugging
+    const userMessage = `Failed to generate captions (alternate): ${errMsg}`;
+
+    return NextResponse.json<CaptionGenerationResponse>(
+      { success: false, message: userMessage, error: errMsg },
+      { status: 500 }
+    );
   }
 }
