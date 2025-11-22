@@ -45,13 +45,15 @@ export const CaptionGenerator: React.FC<CaptionGeneratorProps> = ({
       const MAX_SERVER_FILE_SIZE = 3.5 * 1024 * 1024; // 3.5MB
 
       // If the file is bigger than the server limit or we have a stored URL, send JSON with videoUrl
+      let response: Response | undefined;
+
       if (prefersUrl || (videoFile && videoFile.size > MAX_SERVER_FILE_SIZE)) {
         const payload = {
           videoUrl: video.originalUrl || undefined,
           language,
         };
 
-        let response = await fetch("/api/captions/generate", {
+        response = await fetch("/api/captions/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -78,14 +80,13 @@ export const CaptionGenerator: React.FC<CaptionGeneratorProps> = ({
         }
 
         // proceed with normal response handling below
-        var responseToUse = response;
       } else {
         // Small file path: send as multipart form data
         const formData = new FormData();
         formData.append("video", videoFile as File);
         formData.append("language", language);
 
-        let response = await fetch("/api/captions/generate", {
+        response = await fetch("/api/captions/generate", {
           method: "POST",
           body: formData,
         });
@@ -108,27 +109,29 @@ export const CaptionGenerator: React.FC<CaptionGeneratorProps> = ({
           } catch (altErr) {}
         }
 
-        var responseToUse = response;
+        // response variable is declared above and reused
       }
 
       setProgress("Processing audio...");
 
       // Check if response is ok before parsing
-      if (!response.ok) {
+      if (!response || !response.ok) {
         // Try to parse error response, but handle empty/invalid JSON
-        let errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        let errorMessage = `Server error: ${response ? `${response.status} ${response.statusText}` : "no response"}`;
         try {
-          const contentType = response.headers.get("content-type");
-          if (contentType && contentType.includes("application/json")) {
-            const errorText = await response.text();
-            if (errorText) {
-              const errorData = JSON.parse(errorText);
-              errorMessage = errorData.message || errorData.error || errorMessage;
-            }
-          } else {
-            const errorText = await response.text();
-            if (errorText) {
-              errorMessage = errorText;
+          if (response) {
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+              const errorText = await response.text();
+              if (errorText) {
+                const errorData = JSON.parse(errorText);
+                errorMessage = errorData.message || errorData.error || errorMessage;
+              }
+            } else {
+              const errorText = await response.text();
+              if (errorText) {
+                errorMessage = errorText;
+              }
             }
           }
         } catch (parseError) {
