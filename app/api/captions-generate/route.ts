@@ -35,17 +35,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json<CaptionGenerationResponse>({ success: false, message: "No STT provider configured." }, { status: 500 });
     }
 
-    const formData = await request.formData();
-    const videoFile = formData.get("video") as File | null;
-    const language = (formData.get("language") as "hi" | "en" | "auto") || "auto";
+    // Support JSON { videoUrl } to fetch large files server-side
+    const contentType = request.headers.get("content-type") || "";
+    let videoFile: File | Buffer | null = null;
+    let language: "hi" | "en" | "auto" = "auto";
+
+    if (contentType.includes("application/json")) {
+      const body = await request.json();
+      language = (body.language as any) || "auto";
+      const videoUrl = body.videoUrl as string | undefined;
+      if (!videoUrl) {
+        return NextResponse.json({ success: false, message: "Missing videoUrl in JSON payload" }, { status: 400 });
+      }
+      try {
+        const res = await fetch(videoUrl);
+        if (!res.ok) {
+          return NextResponse.json({ success: false, message: `Failed to fetch video from URL (${res.status})` }, { status: 400 });
+        }
+        const ab = await res.arrayBuffer();
+        videoFile = Buffer.from(ab);
+      } catch (err) {
+        return NextResponse.json({ success: false, message: "Failed to download video from URL", error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+      }
+    } else {
+      const formData = await request.formData();
+      videoFile = formData.get("video") as File | null;
+      language = (formData.get("language") as "hi" | "en" | "auto") || "auto";
+    }
 
     if (!videoFile) {
       return NextResponse.json<CaptionGenerationResponse>({ success: false, message: "No video file provided" }, { status: 400 });
     }
 
-    logger.info("Alternate captions: starting generation", { fileName: videoFile.name, fileSize: videoFile.size, language });
+    const isBuffer = !(typeof (videoFile as any).type === "string");
+    const fileMime = isBuffer ? undefined : (videoFile as File).type;
+    const fileName = isBuffer ? "upload.mp4" : (videoFile as File).name;
 
-    const captions = await generateCaptionsWithRetry(videoFile, language);
+    if ((fileMime && !fileMime.includes("video/mp4")) && !(fileName && fileName.toLowerCase().endsWith(".mp4"))) {
+      return NextResponse.json<CaptionGenerationResponse>({ success: false, message: "File must be an MP4 video" }, { status: 400 });
+    }
+
+    logger.info("Alternate captions: starting generation", { fileName, fileSize: isBuffer ? (videoFile as Buffer).byteLength : (videoFile as File).size, language });
+
+    const captions = await generateCaptionsWithRetry(videoFile as any, language);
 
     const validation = validateCaptions(captions);
     if (!validation.valid) {

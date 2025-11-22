@@ -37,40 +37,78 @@ export const CaptionGenerator: React.FC<CaptionGeneratorProps> = ({
     setProgress("Preparing video...");
 
     try {
-      const formData = new FormData();
-      formData.append("video", videoFile);
-      formData.append("language", language);
-
       setProgress("Sending to transcription service...");
 
-      // Try primary endpoint first, fall back to a backup route if unavailable
-      let response = await fetch("/api/captions/generate", {
-        method: "POST",
-        body: formData,
-      });
+      // If we have a remote URL (uploaded to Supabase or other storage), prefer sending the URL
+      // This avoids sending large video files through Vercel serverless functions which have payload limits
+      const prefersUrl = !!video.originalUrl;
+      const MAX_SERVER_FILE_SIZE = 3.5 * 1024 * 1024; // 3.5MB
 
-      if (!response.ok && (response.status === 404 || response.status === 405)) {
-        // Try fallback route if primary is not allowed or missing in this deployment
-        try {
-          response = await fetch("/api/captions/fallback-generate", {
-            method: "POST",
-            body: formData,
-          });
-        } catch (fallbackErr) {
-          // swallow and let outer catch handle
-        }
-      }
+      // If the file is bigger than the server limit or we have a stored URL, send JSON with videoUrl
+      if (prefersUrl || (videoFile && videoFile.size > MAX_SERVER_FILE_SIZE)) {
+        const payload = {
+          videoUrl: video.originalUrl || undefined,
+          language,
+        };
 
-      // If still failing with 404/405, try an alternate single-segment path
-      if (!response.ok && (response.status === 404 || response.status === 405)) {
-        try {
-          response = await fetch("/api/captions-generate", {
-            method: "POST",
-            body: formData,
-          });
-        } catch (altErr) {
-          // swallow and continue to error handling
+        let response = await fetch("/api/captions/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok && (response.status === 404 || response.status === 405)) {
+          try {
+            response = await fetch("/api/captions/fallback-generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+          } catch (fallbackErr) {}
         }
+
+        if (!response.ok && (response.status === 404 || response.status === 405)) {
+          try {
+            response = await fetch("/api/captions-generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+          } catch (altErr) {}
+        }
+
+        // proceed with normal response handling below
+        var responseToUse = response;
+      } else {
+        // Small file path: send as multipart form data
+        const formData = new FormData();
+        formData.append("video", videoFile as File);
+        formData.append("language", language);
+
+        let response = await fetch("/api/captions/generate", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok && (response.status === 404 || response.status === 405)) {
+          try {
+            response = await fetch("/api/captions/fallback-generate", {
+              method: "POST",
+              body: formData,
+            });
+          } catch (fallbackErr) {}
+        }
+
+        if (!response.ok && (response.status === 404 || response.status === 405)) {
+          try {
+            response = await fetch("/api/captions-generate", {
+              method: "POST",
+              body: formData,
+            });
+          } catch (altErr) {}
+        }
+
+        var responseToUse = response;
       }
 
       setProgress("Processing audio...");
